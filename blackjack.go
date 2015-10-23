@@ -71,8 +71,6 @@ func getUserInput() string {
 		}
 	}
 
-	fmt.Scanln(&input)
-	return input
 }
 
 func showHands(player, dealer *hand.Hand) {

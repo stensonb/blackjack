@@ -3,8 +3,9 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"github.com/stensonb/playingcards/card"
-	"github.com/stensonb/playingcards/standarddeck"
+	"github.com/stensonb/blackjack/Godeps/_workspace/src/github.com/stensonb/playingcards/card"
+	"github.com/stensonb/blackjack/Godeps/_workspace/src/github.com/stensonb/playingcards/deck"
+	"github.com/stensonb/blackjack/Godeps/_workspace/src/github.com/stensonb/playingcards/standarddeck"
 	"math/rand"
 	"time"
 )
@@ -19,7 +20,7 @@ func (h *Hand) String() string {
 
 	for i := 0; i < len(h.cards); i++ {
 		buffer.WriteString(h.cards[i].String())
-		buffer.WriteString(" ")
+		buffer.WriteString("\t")
 	}
 
 	return buffer.String()
@@ -47,68 +48,187 @@ func CardValue(c *card.Card) int {
 		return 10
 	default: // card.Ace
 		return 11
-
 	}
 }
 
 func (h *Hand) Value() int {
 	ans := 0
+	aces := 0
 	for i := 0; i < len(h.cards); i++ {
+		if h.cards[i].Value == card.Ace {
+			aces += 1
+		}
 		ans += CardValue(h.cards[i])
 	}
+
+	// if we have aces, consider evaluating them as 1 instead of 11, if currently > 21 (busted)
+	for ans > 21 {
+		if aces > 0 {
+			ans -= 10
+			aces -= 1
+			continue
+		}
+		break
+	}
+
 	return ans
 }
 
 // returns 0 if equal
-// returns 1 if h > h0
-// returns -1 if h < h0
-func (h *Hand) Compare(h0 *Hand) int {
+// returns 1 if h > j
+// returns -1 if h < j
+func (h *Hand) Compare(j *Hand) int {
 	hval := h.Value()
-	h0val := h0.Value()
+	jval := j.Value()
 
 	switch {
-	case hval == h0val:
+	case hval == jval:
 		return 0
-	case hval > h0val:
+	case hval > jval:
 		return 1
-	default: // hval < h0val:
+	default: // hval < jval:
 		return -1
 	}
 }
 
-func main() {
-	fmt.Println("Blackjack!")
-	fmt.Println()
+// add a card to this hand
+func (h *Hand) AddCard(c *card.Card) {
+	h.cards = append(h.cards, c)
+}
 
-	d := standarddeck.New()
+func (h *Hand) Busted() bool {
+	return h.Value() > 21
+}
+
+// returns the initial dealer hand, as shown before any players bet
+// ie. one card showing, one card not showing
+func showOneCard(h *Hand) string {
+	var buffer bytes.Buffer
+
+	buffer.WriteString("XX\t")
+
+	for i := 1; i < len(h.cards); i++ {
+		buffer.WriteString(h.cards[i].String())
+		buffer.WriteString("\t")
+	}
+
+	return buffer.String()
+}
+
+func NewBlackjack() (d *standarddeck.StandardDeck, dealer *Hand, player *Hand) {
+	d = standarddeck.New()
 	d.Shuffle(rand.New(rand.NewSource(time.Now().UnixNano())))
 
-	dealer := new(Hand)
-	player := new(Hand)
+	dealer = new(Hand)
+	player = new(Hand)
 
 	c, _ := d.NextCard()
-	player.cards = append(player.cards, c)
+	player.AddCard(c)
 	c, _ = d.NextCard()
-	dealer.cards = append(dealer.cards, c)
+	dealer.AddCard(c)
 	c, _ = d.NextCard()
-	player.cards = append(player.cards, c)
+	player.AddCard(c)
 	c, _ = d.NextCard()
-	dealer.cards = append(dealer.cards, c)
+	dealer.AddCard(c)
 
+	return d, dealer, player
+
+}
+
+func dealerPlays(d deck.Deck, h *Hand) {
+	for !h.Busted() && h.Value() < 17 { // dealer must hit when <17
+		c, _ := d.NextCard()
+		h.AddCard(c)
+	}
+}
+
+func promptOptions(h *Hand) string {
+	// display options for player
+	//TODO: make this more rich (if double-down or split is supported)
+	return "[h]it, [s]tay: "
+}
+
+func promptPlayer(d deck.Deck, p *Hand) bool {
+	fmt.Print(promptOptions(p))
+
+	// read from the player
+	switch getUserInput() {
+	case "h":
+		c, _ := d.NextCard()
+		p.AddCard(c)
+		return false
+	default: // case "s":
+		return true
+	}
+
+	//	answer := getUserInput()
+	//	fmt.Println(answer)
+
+}
+
+func getUserInput() string {
+	var input string
+
+	for {
+		fmt.Scanln(&input)
+		fmt.Println() //formatting
+		switch input {
+		case "h", "s":
+			return input
+		default:
+			fmt.Println("try again")
+		}
+	}
+
+	fmt.Scanln(&input)
+	return input
+}
+
+func showHands(player, dealer *Hand) {
+	fmt.Println("Dealer:", showOneCard(dealer))
+	fmt.Println("Player:", player)
+	fmt.Println() //formatting
+}
+
+func declareWinner(player, dealer *Hand) {
 	fmt.Println("Dealer:", dealer)
 	fmt.Println("Player:", player)
-
 	fmt.Println() //formatting
 
 	cmp := player.Compare(dealer)
 
-	switch cmp {
-	case 0:
-		fmt.Println("Tie!")
-	case 1:
+	switch {
+	case player.Busted() && dealer.Busted(): // house rules
+		fmt.Println("Dealer wins!")
+	case player.Busted():
+		fmt.Println("Dealer wins!")
+	case dealer.Busted():
 		fmt.Println("Player wins!")
-	case -1:
+	case cmp == 0:
+		fmt.Println("Tie!")
+	case cmp == 1:
+		fmt.Println("Player wins!")
+	case cmp == -1:
 		fmt.Println("Dealer wins!")
 	}
+}
+
+func main() {
+	fmt.Println("----------")
+	fmt.Println("Blackjack!")
+	fmt.Println() // formatting
+
+	d, dealer, player := NewBlackjack()
+
+	// player loop
+	for done := false; done == false && !player.Busted(); done = promptPlayer(d, player) {
+		showHands(player, dealer)
+	}
+
+	// dealer loop
+	dealerPlays(d, dealer)
+
+	declareWinner(player, dealer)
+	fmt.Println()
 
 }
